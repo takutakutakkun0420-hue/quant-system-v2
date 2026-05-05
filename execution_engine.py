@@ -24,25 +24,26 @@ logger = logging.getLogger(__name__)
 def send_slack_notification(message, level="info"):
     webhook_url = os.getenv('SLACK_WEBHOOK_URL')
     
-    logger.info("Slack webhook configured" if webhook_url else "Slack webhook missing")
-
     if not webhook_url:
         logger.error("SLACK_WEBHOOK_URL is empty")
         return
 
     payload = {"text": message}
 
-    try:
-        req = urllib.request.Request(
-            webhook_url,
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'}
-        )
-        response = urllib.request.urlopen(req)
-
-        logger.info(f"Slack response: {response.status}")  # ←追加
-    except Exception as e:
-        logger.error(f"Slack通知失敗: {e}")  # ←これ重要
+    # 🔥 FIX: ネットワーク揺らぎによる「無音死」を防ぐ3回リトライ＆タイムアウト
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                webhook_url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'}
+            )
+            response = urllib.request.urlopen(req, timeout=10)
+            logger.info(f"Slack response: {response.status}")
+            return  # 成功したら即座に抜ける
+        except Exception as e:
+            logger.error(f"Slack通知失敗 ({attempt+1}/3): {e}")
+            time.sleep(2)
 
 # ==========================================
 # 2. Config & API 初期化
@@ -54,7 +55,8 @@ try:
 except Exception as e:
     logger.critical(f"🚨 設定読み込みエラー: {e}"); exit(1)
 
-SYMBOLS, DRY_RUN = ["QQQ", "AAPL", "NVDA"], False
+SYMBOLS = ["QQQ", "AAPL", "NVDA"]
+DRY_RUN = os.getenv("DRY_RUN", "true").lower() in ("true", "1", "t")
 load_dotenv()
 try:
     trading_client = TradingClient(os.getenv('ALPACA_API_KEY'), os.getenv('ALPACA_SECRET_KEY'), paper=True)
@@ -147,7 +149,11 @@ def run_execution_cycle():
             df = get_market_data(sym, period="1mo")
             if df is None: continue
             atr = df['ATR'].iloc[-1]
-            if pd.isna(atr) or atr == 0: atr = curr_p * 0.05 # フェイルセーフ
+            
+            # 🔥 FIX: ATR異常時はスキップ（計器故障時の目隠し飛行防止）
+            if pd.isna(atr) or atr == 0:
+                send_slack_notification(f"⚠️ ATR invalid {sym}. Skip processing.", "warning")
+                continue
 
             true_h = calculate_true_highest(sym, curr_p, avg_e)
             stop_p, trail_p = avg_e - (atr * GLOBAL['default_atr_stop_multiplier']), true_h - (atr * GLOBAL['default_atr_trail_multiplier'])
@@ -173,7 +179,11 @@ def run_execution_cycle():
         df = get_market_data(symbol)
         if df is None: continue
         curr, prev = df.iloc[-1], df.iloc[-2]
-        atr = curr['ATR'] if not pd.isna(curr['ATR']) else curr['Close'] * 0.05
+        atr = curr['ATR']
+        
+        # エントリー時の計器異常も無音でスキップ（ノイズ防止）
+        if pd.isna(atr) or atr == 0:
+            continue 
 
         is_breakout, is_not_overbought = curr['Close'] > prev['High'], curr['RSI'] < 80
         matched = None
@@ -194,7 +204,10 @@ def run_execution_cycle():
                         order_id = f"{matched}-{symbol}-{uuid.uuid4().hex[:6]}"
                         trading_client.submit_order(order_data=MarketOrderRequest(symbol=symbol, qty=buy_qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY, client_order_id=order_id))
                         send_slack_notification(f"🔥 ENTRY: {matched} {symbol} ({buy_qty}株)", "info")
-                    except Exception as e: logger.error(f"発注エラー: {e}")
+                    except Exception as e: 
+                        logger.error(f"発注エラー: {e}")
+                        # 🔥 FIX: 発注エラー時のSlack通知（現実との同期ズレ防止）
+                        send_slack_notification(f"🚨 Order failed: {symbol}", "danger")
 
 if __name__ == "__main__":
     run_execution_cycle()
