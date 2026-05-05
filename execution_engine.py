@@ -55,9 +55,10 @@ try:
 except Exception as e:
     logger.critical(f"🚨 設定読み込みエラー: {e}"); exit(1)
 
+load_dotenv()
+
 SYMBOLS = ["QQQ", "AAPL", "NVDA"]
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() in ("true", "1", "t")
-load_dotenv()
 try:
     trading_client = TradingClient(os.getenv('ALPACA_API_KEY'), os.getenv('ALPACA_SECRET_KEY'), paper=True)
     logger.info("✅ Alpaca API接続成功")
