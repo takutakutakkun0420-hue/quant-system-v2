@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 def send_slack_notification(message, level="info"):
     webhook_url = os.getenv('SLACK_WEBHOOK_URL')
     
-    logger.info(f"Slack webhook exists: {bool(webhook_url)}")
+    logger.info("Slack webhook configured" if webhook_url else "Slack webhook missing")
 
     if not webhook_url:
         logger.error("SLACK_WEBHOOK_URL is empty")
