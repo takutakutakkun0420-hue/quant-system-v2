@@ -104,15 +104,20 @@ def run_execution_cycle():
         send_slack_notification(f"🚨 市場状態取得エラー: {e}", "danger")
         return
 
-    # [防御] 資産・DD監視 (ハートビート)
+        # [防御] 資産・DD監視 (ハートビート)
     try:
         account = trading_client.get_account()
-        portfolio_value, cash = float(account.portfolio_value), float(account.cash)
+        portfolio_value = float(account.portfolio_value)
+        cash = float(account.cash)
 
-heartbeat_msg = f"💼 PORTFOLIO: ${portfolio_value:.2f} | CASH: ${cash:.2f}"
-logger.info(heartbeat_msg)
-send_slack_notification(heartbeat_msg, "info")
+        heartbeat_msg = f"💼 PORTFOLIO: ${portfolio_value:.2f} | CASH: ${cash:.2f}"
+        logger.info(heartbeat_msg)
+        send_slack_notification(heartbeat_msg, "info")
+
+        if (portfolio_value - 100000.0) / 100000.0 <= GLOBAL['system_stop_drawdown']:
+            send_slack_notification("🚨 最大DD突破。システム停止。", "danger")
             return
+
     except Exception as e:
         logger.error(f"アカウント情報取得エラー: {e}")
         send_slack_notification(f"🚨 アカウント初期チェックエラー: {e}", "danger")
