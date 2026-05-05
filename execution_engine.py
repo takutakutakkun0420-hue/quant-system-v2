@@ -84,7 +84,7 @@ def get_market_data(symbol, period="3mo"):
             return df
         except Exception: time.sleep(2)
         
-    # 🔥 FIX: データ取得の完全な無音死を防止
+    # データ取得の完全な無音死を防止
     logger.error(f"🚨 データ取得失敗: {symbol}")
     send_slack_notification(f"🚨 データ取得完全失敗 (3 retries): {symbol}", "warning")
     return None
@@ -174,12 +174,17 @@ def run_execution_cycle():
                  if not DRY_RUN: trading_client.submit_order(order_data=MarketOrderRequest(symbol=sym, qty=qty, side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
     except Exception as e: 
         logger.error(f"ポジションエラー: {e}")
-        # 🔥 FIX: ポジション処理の無音死を防止
         send_slack_notification(f"🚨 ポジション処理エラー: {e}", "danger")
 
-    # 新規エントリー制御
-    open_orders = trading_client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
-    pending_syms = {o.symbol for o in open_orders} if open_orders else set()
+    # 🔥 FIX: 待機注文取得の完全な無音死（Silent Crash）を防止
+    try:
+        open_orders = trading_client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
+        pending_syms = {o.symbol for o in open_orders} if open_orders else set()
+    except Exception as e:
+        logger.error(f"待機注文取得エラー: {e}")
+        send_slack_notification(f"🚨 待機注文取得エラー: {e}", "danger")
+        return
+
     total_positions = len(existing_symbols.union(pending_syms))
     if vix_kill or total_positions >= GLOBAL.get('max_concurrent_positions', 2): return
 
@@ -215,7 +220,6 @@ def run_execution_cycle():
                         send_slack_notification(f"🔥 ENTRY: {matched} {symbol} ({buy_qty}株)", "info")
                     except Exception as e: 
                         logger.error(f"発注エラー: {e}")
-                        # 発注エラー時のSlack通知（現実との同期ズレ防止）
                         send_slack_notification(f"🚨 Order failed: {symbol}", "danger")
 
 if __name__ == "__main__":
