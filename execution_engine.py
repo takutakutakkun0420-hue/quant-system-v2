@@ -30,7 +30,7 @@ def send_slack_notification(message, level="info"):
 
     payload = {"text": message}
 
-    # 🔥 FIX: ネットワーク揺らぎによる「無音死」を防ぐ3回リトライ＆タイムアウト
+    # ネットワーク揺らぎによる「無音死」を防ぐ3回リトライ＆タイムアウト
     for attempt in range(3):
         try:
             req = urllib.request.Request(
@@ -40,7 +40,7 @@ def send_slack_notification(message, level="info"):
             )
             response = urllib.request.urlopen(req, timeout=10)
             logger.info(f"Slack response: {response.status}")
-            return  # 成功したら即座に抜ける
+            return
         except Exception as e:
             logger.error(f"Slack通知失敗 ({attempt+1}/3): {e}")
             time.sleep(2)
@@ -59,6 +59,7 @@ load_dotenv()
 
 SYMBOLS = ["QQQ", "AAPL", "NVDA"]
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() in ("true", "1", "t")
+
 try:
     trading_client = TradingClient(os.getenv('ALPACA_API_KEY'), os.getenv('ALPACA_SECRET_KEY'), paper=True)
     logger.info("✅ Alpaca API接続成功")
@@ -82,6 +83,10 @@ def get_market_data(symbol, period="3mo"):
             df['ATR'] = df['TR'].rolling(14).mean()
             return df
         except Exception: time.sleep(2)
+        
+    # 🔥 FIX: データ取得の完全な無音死を防止
+    logger.error(f"🚨 データ取得失敗: {symbol}")
+    send_slack_notification(f"🚨 データ取得完全失敗 (3 retries): {symbol}", "warning")
     return None
 
 def calculate_true_highest(symbol, current_price, avg_entry):
@@ -151,7 +156,7 @@ def run_execution_cycle():
             if df is None: continue
             atr = df['ATR'].iloc[-1]
             
-            # 🔥 FIX: ATR異常時はスキップ（計器故障時の目隠し飛行防止）
+            # ATR異常時はスキップ（計器故障時の目隠し飛行防止）
             if pd.isna(atr) or atr == 0:
                 send_slack_notification(f"⚠️ ATR invalid {sym}. Skip processing.", "warning")
                 continue
@@ -167,7 +172,10 @@ def run_execution_cycle():
             elif curr_p <= trail_p:
                  send_slack_notification(f"🟢 TRAILING STOP {sym}", "success")
                  if not DRY_RUN: trading_client.submit_order(order_data=MarketOrderRequest(symbol=sym, qty=qty, side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
-    except Exception as e: logger.error(f"ポジションエラー: {e}")
+    except Exception as e: 
+        logger.error(f"ポジションエラー: {e}")
+        # 🔥 FIX: ポジション処理の無音死を防止
+        send_slack_notification(f"🚨 ポジション処理エラー: {e}", "danger")
 
     # 新規エントリー制御
     open_orders = trading_client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
@@ -207,7 +215,7 @@ def run_execution_cycle():
                         send_slack_notification(f"🔥 ENTRY: {matched} {symbol} ({buy_qty}株)", "info")
                     except Exception as e: 
                         logger.error(f"発注エラー: {e}")
-                        # 🔥 FIX: 発注エラー時のSlack通知（現実との同期ズレ防止）
+                        # 発注エラー時のSlack通知（現実との同期ズレ防止）
                         send_slack_notification(f"🚨 Order failed: {symbol}", "danger")
 
 if __name__ == "__main__":
