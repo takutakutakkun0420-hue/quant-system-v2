@@ -23,7 +23,10 @@ logger = logging.getLogger(__name__)
 
 def send_slack_notification(message, level="info"):
     webhook_url = os.getenv('SLACK_WEBHOOK_URL')
-    if not webhook_url: return
+    logger.info(f"Slack webhook exists: {bool(webhook_url)}")
+    if not webhook_url:
+        logger.error("SLACK_WEBHOOK_URL is empty")
+        return
     emoji = {"info": "ℹ️", "success": "✅", "warning": "⚠️", "danger": "🚨"}.get(level, "💬")
     payload = {"text": f"{emoji} *Quant System*\n{message}"}
     try:
