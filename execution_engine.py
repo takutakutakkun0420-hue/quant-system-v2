@@ -92,17 +92,17 @@ def calculate_true_highest(symbol, current_price, avg_entry):
 # ==========================================
 def run_execution_cycle():
     logger.info("🚀 執行サイクル開始...")
-    
+
     # [防御] 市場オープン確認
-try:
-    if not trading_client.get_clock().is_open:
-        logger.info("🛑 Market closed")
-        send_slack_notification("🛑 Market closed - system alive", "info")
+    try:
+        if not trading_client.get_clock().is_open:
+            logger.info("🛑 Market closed")
+            send_slack_notification("🛑 Market closed - system alive", "info")
+            return
+    except Exception as e:
+        logger.error(f"市場状態取得エラー: {e}")
+        send_slack_notification(f"🚨 市場状態取得エラー: {e}", "danger")
         return
-except Exception as e:
-    logger.error(f"市場状態取得エラー: {e}")
-    send_slack_notification(f"🚨 市場状態取得エラー: {e}", "danger")
-    return
 
     # [防御] 資産・DD監視 (ハートビート)
     try:
