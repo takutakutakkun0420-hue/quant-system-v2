@@ -23,16 +23,26 @@ logger = logging.getLogger(__name__)
 
 def send_slack_notification(message, level="info"):
     webhook_url = os.getenv('SLACK_WEBHOOK_URL')
+    
     logger.info(f"Slack webhook exists: {bool(webhook_url)}")
+
     if not webhook_url:
         logger.error("SLACK_WEBHOOK_URL is empty")
         return
-    emoji = {"info": "ℹ️", "success": "✅", "warning": "⚠️", "danger": "🚨"}.get(level, "💬")
-    payload = {"text": f"{emoji} *Quant System*\n{message}"}
+
+    payload = {"text": message}
+
     try:
-        req = urllib.request.Request(webhook_url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
-        urllib.request.urlopen(req, timeout=2) 
-    except Exception as e: logger.error(f"Slack通知失敗: {e}")
+        req = urllib.request.Request(
+            webhook_url,
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}
+        )
+        response = urllib.request.urlopen(req)
+
+        logger.info(f"Slack response: {response.status}")  # ←追加
+    except Exception as e:
+        logger.error(f"Slack通知失敗: {e}")  # ←これ重要
 
 # ==========================================
 # 2. Config & API 初期化
