@@ -79,6 +79,8 @@ def calculate_true_highest(symbol, current_price, avg_entry):
 # ==========================================
 def run_execution_cycle():
     logger.info("🚀 執行サイクル開始...")
+
+    send_slack_notification("🧪 TEST: Slack接続OK", "info")
     
     # [防御] 市場オープン確認
     try:
