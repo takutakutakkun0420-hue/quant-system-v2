@@ -99,12 +99,12 @@ def run_execution_cycle():
             logger.info("🛑 Market closed")
             send_slack_notification("🛑 Market closed - system alive", "info")
             return
-    except Exception as e:
+        except Exception as e:
         logger.error(f"市場状態取得エラー: {e}")
         send_slack_notification(f"🚨 市場状態取得エラー: {e}", "danger")
         return
 
-        # [防御] 資産・DD監視 (ハートビート)
+    # [防御] 資産・DD監視 (ハートビート)
     try:
         account = trading_client.get_account()
         portfolio_value = float(account.portfolio_value)
