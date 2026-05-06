@@ -138,7 +138,7 @@ def run_execution_cycle():
         if vix_df['Close'].iloc[-1] >= GLOBAL['vix_kill_switch'] and vix_df['Close'].iloc[-2] >= GLOBAL['vix_kill_switch']:
             vix_kill = True; send_slack_notification("🚨 VIX継続異常。全決済実行", "danger")
 
-    # ポジション処理 (決済ロジック：ATRストップ・トレール・VIX Killを完全維持)
+    # ポジション処理
     existing_symbols = set()
     try:
         positions = trading_client.get_all_positions()
@@ -156,7 +156,6 @@ def run_execution_cycle():
             if df is None: continue
             atr = df['ATR'].iloc[-1]
             
-            # ATR異常時はスキップ（計器故障時の目隠し飛行防止）
             if pd.isna(atr) or atr == 0:
                 send_slack_notification(f"⚠️ ATR invalid {sym}. Skip processing.", "warning")
                 continue
@@ -177,14 +176,19 @@ def run_execution_cycle():
         send_slack_notification(f"🚨 ポジション処理エラー: {e}", "danger")
 
     # ---------------------------------------------------------
-    # 🔥 P2 FIX: Stale Order Cleanup (古い未約定注文の一括キャンセル)
+    # 🔥 P2 FIX & BUG FIX: Stale Order Cleanup + 変数定義
     # ---------------------------------------------------------
     try:
         open_orders = trading_client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
         if open_orders:
             logger.info(f"🧹 {len(open_orders)}件の古い待機注文(Stale Orders)をキャンセルします...")
-            trading_client.cancel_orders() # 全キャンセルを実行
-            time.sleep(2) # Alpaca側でのキャンセル完了を待つ
+            if not DRY_RUN:
+                trading_client.cancel_orders() # 全キャンセルを実行
+                time.sleep(2) # Alpaca側でのキャンセル完了を待つ
+                open_orders = trading_client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN)) # 再取得
+        
+        # 👇 修正：ここで pending_syms を確実に定義する
+        pending_syms = {o.symbol for o in open_orders} if open_orders else set()
     except Exception as e:
         logger.error(f"注文キャンセル処理エラー: {e}")
         send_slack_notification(f"🚨 Stale order cleanup failed: {e}", "danger")
@@ -193,7 +197,7 @@ def run_execution_cycle():
     total_positions = len(existing_symbols.union(pending_syms))
     if vix_kill or total_positions >= GLOBAL.get('max_concurrent_positions', 2): return
 
-    # 新規エントリー制御 (VCP/GapUp判定 ＆ リスクベースのポジションサイジングを完全維持)
+    # 新規エントリー制御
     for symbol in SYMBOLS:
         if symbol in existing_symbols or symbol in pending_syms: continue
         df = get_market_data(symbol)
@@ -201,9 +205,7 @@ def run_execution_cycle():
         curr, prev = df.iloc[-1], df.iloc[-2]
         atr = curr['ATR']
         
-        # エントリー時の計器異常も無音でスキップ（ノイズ防止）
-        if pd.isna(atr) or atr == 0:
-            continue 
+        if pd.isna(atr) or atr == 0: continue 
 
         is_breakout, is_not_overbought = curr['Close'] > prev['High'], curr['RSI'] < 80
         matched = None
@@ -223,10 +225,19 @@ def run_execution_cycle():
                     try:
                         order_id = f"{matched}-{symbol}-{uuid.uuid4().hex[:6]}"
                         trading_client.submit_order(order_data=MarketOrderRequest(symbol=symbol, qty=buy_qty, side=OrderSide.BUY, time_in_force=TimeInForce.DAY, client_order_id=order_id))
-                        send_slack_notification(f"🔥 ENTRY: {matched} {symbol} ({buy_qty}株)", "info")
+                        
+                        # 👇 修正：スリッページ検証用の詳細テレメトリ通知
+                        telemetry_msg = (
+                            f"🔥 [ENTRY TEST] {matched} {symbol}\n"
+                            f"├ 📊 Signal Price: ${curr['Close']:.2f}\n"
+                            f"├ 🎯 Stop Loss (Est): ${curr['Close'] - risk_p_s:.2f}\n"
+                            f"├ 📦 Quantity: {buy_qty}株\n"
+                            f"└ 🆔 Order ID: {order_id}"
+                        )
+                        send_slack_notification(telemetry_msg, "info")
                     except Exception as e: 
                         logger.error(f"発注エラー: {e}")
-                        send_slack_notification(f"🚨 Order failed: {symbol}", "danger")
+                        send_slack_notification(f"🚨 Order failed: {symbol}\n└ Reason: {e}", "danger")
 
 if __name__ == "__main__":
     run_execution_cycle()
