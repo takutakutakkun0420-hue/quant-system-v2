@@ -176,13 +176,18 @@ def run_execution_cycle():
         logger.error(f"ポジションエラー: {e}")
         send_slack_notification(f"🚨 ポジション処理エラー: {e}", "danger")
 
-    # 🔥 FIX: 待機注文取得の完全な無音死（Silent Crash）を防止
+    # ---------------------------------------------------------
+    # 🔥 P2 FIX: Stale Order Cleanup (古い未約定注文の一括キャンセル)
+    # ---------------------------------------------------------
     try:
         open_orders = trading_client.get_orders(filter=GetOrdersRequest(status=QueryOrderStatus.OPEN))
-        pending_syms = {o.symbol for o in open_orders} if open_orders else set()
+        if open_orders:
+            logger.info(f"🧹 {len(open_orders)}件の古い待機注文(Stale Orders)をキャンセルします...")
+            trading_client.cancel_orders() # 全キャンセルを実行
+            time.sleep(2) # Alpaca側でのキャンセル完了を待つ
     except Exception as e:
-        logger.error(f"待機注文取得エラー: {e}")
-        send_slack_notification(f"🚨 待機注文取得エラー: {e}", "danger")
+        logger.error(f"注文キャンセル処理エラー: {e}")
+        send_slack_notification(f"🚨 Stale order cleanup failed: {e}", "danger")
         return
 
     total_positions = len(existing_symbols.union(pending_syms))
