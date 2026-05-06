@@ -35,3 +35,27 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           python execution_engine.py
+
+          global_settings:
+  vix_kill_switch: 30.0
+  max_portfolio_risk_pct: 0.10
+  max_shares_per_trade: 1       # 👈 【最重要】被害最小化のため1株に固定
+  max_concurrent_positions: 2
+  system_stop_drawdown: -0.20
+  default_atr_stop_multiplier: 2.0
+  default_atr_trail_multiplier: 3.0
+
+strategies:
+  vcp_breakout_v1:
+    enabled: true
+    risk_pct_per_trade: 0.01
+    volume_threshold: 0.8       # 👈 【テスト用】平均出来高の80%に緩和
+    rsi_limit: 80
+    vcp_compression_ratio: 0.9  # 👈 【テスト用】圧縮条件も緩和
+
+  gap_up_v1:
+    enabled: true
+    risk_pct_per_trade: 0.01
+    volume_threshold: 0.8       # 👈 【テスト用】緩和
+    rsi_limit: 80
+    gap_threshold_pct: 1.00     # 👈 【テスト用】前日終値以上ならOKに緩和
