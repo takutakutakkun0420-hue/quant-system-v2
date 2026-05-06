@@ -1,5 +1,10 @@
 name: Quant Execution Engine
 
+# 👇 追加：前のプロセスが終わるまで次の起動をロック（二重発注の防止）
+concurrency:
+  group: quant-engine
+  cancel-in-progress: false
+
 on:
   schedule:
     # 毎日 月〜金の UTC時間14:00〜20:00 の間、30分ごとに実行
